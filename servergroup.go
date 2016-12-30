@@ -13,27 +13,16 @@ func GetServerGroups() ([]models.ServerGroup, error) {
 	return groups, err
 }
 
-func PingServer(checker AliveChecker, errCtx interface{}, errCh chan<- interface{}) {
-	err := checker.CheckAlive()
-	log.Debugf("check %+v, result:%v, errCtx:%+v", checker, err, errCtx)
-	if err != nil {
-		errCh <- errCtx
-		return
-	}
-	errCh <- nil
+type pingCtx struct {
+	Checker AliveChecker
+	Server  *models.Server
+	Err     error
 }
 
-func verifyAndUpServer(checker AliveChecker, errCtx interface{}) {
-	errCh := make(chan interface{}, 100)
-
-	go PingServer(checker, errCtx, errCh)
-
-	s := <-errCh
-
-	if s == nil { //alive
-		handleAddServer(errCtx.(*models.Server))
-	}
-
+func PingServer(checker AliveChecker, server *models.Server, ctxChan chan<- *pingCtx) {
+	err := checker.CheckAlive()
+	ctxChan <- &pingCtx{checker, server, err}
+	log.Debugf("check %+v, result:%v, errCtx:%+v", checker, err, server)
 }
 
 func getSlave(master *models.Server) (*models.Server, error) {
@@ -88,30 +77,28 @@ func handleAddServer(s *models.Server) {
 
 //ping codis-server find crashed codis-server
 func CheckAliveAndPromote(groups []models.ServerGroup) ([]models.Server, error) {
-	errCh := make(chan interface{}, 100)
+	ctxChan := make(chan *pingCtx, 100)
 	var serverCnt int
 	for _, group := range groups { //each group
 		for _, s := range group.Servers { //each server
-			serverCnt++
 			rc := acf(s.Addr, 5*time.Second)
-			news := s
-			go PingServer(rc, news, errCh)
+			go PingServer(rc, s, ctxChan)
+			serverCnt++
 		}
 	}
 
 	//get result
 	var crashedServer []models.Server
 	for i := 0; i < serverCnt; i++ {
-		s := <-errCh
-		if s == nil { //alive
+		ctx := <-ctxChan
+		if ctx.Err == nil { //alive
 			continue
 		}
 
-		log.Warningf("server maybe crashed %+v", s)
-		crashedServer = append(crashedServer, *s.(*models.Server))
+		log.Warningf("server maybe crashed %+v", ctx.Server)
+		crashedServer = append(crashedServer, *ctx.Server)
 
-		err := handleCrashedServer(s.(*models.Server))
-		if err != nil {
+		if err := handleCrashedServer(ctx.Server); err != nil {
 			return crashedServer, err
 		}
 	}
@@ -121,14 +108,23 @@ func CheckAliveAndPromote(groups []models.ServerGroup) ([]models.Server, error) 
 
 //ping codis-server find node up with type offine
 func CheckOfflineAndPromoteSlave(groups []models.ServerGroup) ([]models.Server, error) {
+	ctxChan := make(chan *pingCtx, 100)
+	var serverCnt int
 	for _, group := range groups { //each group
 		for _, s := range group.Servers { //each server
-			rc := acf(s.Addr, 5*time.Second)
-			news := s
-			if (s.Type == models.SERVER_TYPE_OFFLINE) {
-				verifyAndUpServer(rc, news)
+			if s.Type == models.SERVER_TYPE_OFFLINE {
+				rc := acf(s.Addr, 5*time.Second)
+				go PingServer(rc, s, ctxChan)
+				serverCnt++
 			}
 		}
+	}
+	for i := 0; i < serverCnt; i++ {
+		ctx := <-ctxChan
+		if ctx.Err != nil {
+			continue
+		}
+		handleAddServer(ctx.Server)
 	}
 	return nil, nil
 }
