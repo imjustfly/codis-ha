@@ -56,17 +56,21 @@ func TestPingServer(t *testing.T) {
 		defaultTimeout: 1 * time.Second,
 	}
 
-	errCh := make(chan interface{})
-	go PingServer(rc, "context", errCh)
-	if str := <-errCh; str.(string) != "context" {
+	ctxCh := make(chan *pingCtx)
+	server := &models.Server{
+		Addr: "test",
+	}
+	go PingServer(rc, server, ctxCh)
+	if ctx := <-ctxCh; ctx.Server.Addr != "test" {
 		t.Error("should be error")
 	}
 
 	redis, _ := miniredis.Run()
 	defer redis.Close()
 	rc.addr = redis.Addr()
-	go PingServer(rc, "context", errCh)
-	if obj := <-errCh; obj != nil {
+	server.Addr = redis.Addr()
+	go PingServer(rc, server, ctxCh)
+	if ctx := <-ctxCh; ctx.Err != nil {
 		t.Error("should be error")
 	}
 }
