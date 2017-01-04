@@ -1,12 +1,17 @@
 package main
 
 import (
+	"fmt"
 	"github.com/juju/errors"
 	log "github.com/ngaut/logging"
 	"github.com/wandoulabs/codis/pkg/models"
 	"sync"
 	"time"
 )
+
+func stringifyServer(s *models.Server) string {
+	return fmt.Sprintf("group_id: %d type: %s addr: %s", s.GroupId, s.Type, s.GroupId)
+}
 
 func GetServerGroups() ([]models.ServerGroup, error) {
 	var groups []models.ServerGroup
@@ -39,25 +44,26 @@ func handleCrashedServer(s *models.Server) error {
 			log.Warning(errors.ErrorStack(err))
 			return err
 		}
-		log.Infof("try promote %+v", slave)
+		log.Infof("try promote %s", stringifyServer(slave))
 		err = callHttp(nil, genUrl(*apiServer, "/api/server_group/", slave.GroupId, "/promote"), "POST", slave)
 		if err != nil {
-			log.Errorf("do promote %v failed %v", slave, errors.ErrorStack(err))
+			log.Errorf("do promote %s failed %v", stringifyServer(slave), errors.ErrorStack(err))
 			return err
 		}
-		log.Infof("slave %+v promoted", slave)
+		log.Infof("slave %s promoted", stringifyServer(slave))
 	case models.SERVER_TYPE_SLAVE:
-		log.Errorf("slave is down: %+v", s)
+		log.Errorf("slave is down: %s", stringifyServer(s))
 	case models.SERVER_TYPE_OFFLINE:
 		//no need to handle it
 	default:
-		log.Fatalf("unkonwn type %+v", s)
+		log.Fatalf("unkonwn type %s", stringifyServer(s))
 	}
 
 	return nil
 }
 
-func checkMaster(rc AliveChecker, s *models.Server, wg *sync.WaitGroup) {
+func checkMaster(s *models.Server, wg *sync.WaitGroup) {
+	rc := acf(s.Addr, 5*time.Second)
 	if err := rc.CheckAlive(); err != nil {
 		handleCrashedServer(s)
 	}
@@ -69,8 +75,7 @@ func CheckAlive(groups []models.ServerGroup) {
 	wg := &sync.WaitGroup{}
 	for _, group := range groups { //each group
 		for _, s := range group.Servers { //each server
-			rc := acf(s.Addr, 5*time.Second)
-			go checkMaster(rc, s, wg)
+			go checkMaster(s, wg)
 			wg.Add(1)
 		}
 	}
@@ -79,12 +84,13 @@ func CheckAlive(groups []models.ServerGroup) {
 
 func handleRecoveredServer(s *models.Server) {
 	s.Type = models.SERVER_TYPE_SLAVE
-	log.Infof("try reusing slave %+v", s)
+	log.Infof("try reusing slave %s", stringifyServer(s))
 	err := callHttp(nil, genUrl(*apiServer, "/api/server_group/", s.GroupId, "/addServer"), "PUT", s)
-	log.Errorf("do reusing slave %v failed %v", s, errors.ErrorStack(err))
+	log.Errorf("do reusing slave %s failed %v", stringifyServer(s), errors.ErrorStack(err))
 }
 
-func checkSlave(rc AliveChecker, s *models.Server, wg *sync.WaitGroup) {
+func checkSlave(s *models.Server, wg *sync.WaitGroup) {
+	rc := acf(s.Addr, 5*time.Second)
 	if err := rc.CheckAlive(); err != nil {
 		handleRecoveredServer(s)
 	}
@@ -97,8 +103,7 @@ func CheckOffline(groups []models.ServerGroup) {
 	for _, group := range groups { //each group
 		for _, s := range group.Servers { //each server
 			if s.Type == models.SERVER_TYPE_OFFLINE {
-				rc := acf(s.Addr, 5*time.Second)
-				go checkSlave(rc, s, wg)
+				go checkSlave(s, wg)
 				wg.Add(1)
 			}
 		}
