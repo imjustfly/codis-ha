@@ -52,8 +52,8 @@ func main() {
 			return
 		}
 
-		CheckAliveAndPromote(groups)
-		CheckOfflineAndPromoteSlave(groups)
+		CheckAlive(groups)
+		CheckOffline(groups)
 		time.Sleep(3 * time.Second)
 	}
 }

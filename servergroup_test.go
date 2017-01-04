@@ -51,30 +51,6 @@ func TestGetServerGroups(t *testing.T) {
 	}
 }
 
-func TestPingServer(t *testing.T) {
-	rc := &redisChecker{
-		defaultTimeout: 1 * time.Second,
-	}
-
-	ctxCh := make(chan *pingCtx)
-	server := &models.Server{
-		Addr: "test",
-	}
-	go PingServer(rc, server, ctxCh)
-	if ctx := <-ctxCh; ctx.Server.Addr != "test" {
-		t.Error("should be error")
-	}
-
-	redis, _ := miniredis.Run()
-	defer redis.Close()
-	rc.addr = redis.Addr()
-	server.Addr = redis.Addr()
-	go PingServer(rc, server, ctxCh)
-	if ctx := <-ctxCh; ctx.Err != nil {
-		t.Error("should be error")
-	}
-}
-
 func TestGetSlave(t *testing.T) {
 	callHttp = func(objPtr interface{}, url string, method string, arg interface{}) error {
 		buf, _ := json.Marshal(groups1[0])
@@ -96,59 +72,6 @@ func TestGetSlave(t *testing.T) {
 	}
 
 	if _, err := getSlave(&models.Server{}); err == nil {
-		t.Error("should be error")
-	}
-}
-
-func TestCheckAliveAndPromote(t *testing.T) {
-	//test promote with slave
-	groups := groups1
-	callHttp = func(objPtr interface{}, url string, method string, arg interface{}) error {
-		if url == genUrl(*apiServer, "/api/server_group/", GROUP_ID) {
-			group := groups[0]
-			buf, _ := json.Marshal(group)
-			json.Unmarshal(buf, objPtr)
-			return nil
-		}
-
-		return nil
-	}
-
-	_, err := CheckAliveAndPromote(groups)
-	if err != nil {
-		t.Error(err)
-	}
-
-	//test no slave
-	groups = []models.ServerGroup{
-		models.ServerGroup{
-			Servers: []*models.Server{
-				&models.Server{GroupId: GROUP_ID, Type: models.SERVER_TYPE_MASTER, Addr: "dead master"},
-			},
-		},
-	}
-
-	_, err = CheckAliveAndPromote(groups)
-	if err == nil {
-		t.Error("should be error")
-	}
-
-	//test have slave but promote error
-	groups = groups1
-	callHttp = func(objPtr interface{}, url string, method string, arg interface{}) error {
-		if url == genUrl(*apiServer, "/api/server_group/", GROUP_ID) {
-			fmt.Println(url)
-			group := groups[0]
-			buf, _ := json.Marshal(group)
-			json.Unmarshal(buf, objPtr)
-			return nil
-		}
-
-		return fmt.Errorf("mock error")
-	}
-
-	_, err = CheckAliveAndPromote(groups)
-	if err == nil {
 		t.Error("should be error")
 	}
 }
