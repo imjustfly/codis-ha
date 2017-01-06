@@ -10,7 +10,7 @@ import (
 )
 
 func stringifyServer(s *models.Server) string {
-	return fmt.Sprintf("group_id: %d type: %s addr: %s", s.GroupId, s.Type, s.GroupId)
+	return fmt.Sprintf("group_id: %d type: %s addr: %s", s.GroupId, s.Type, s.Addr)
 }
 
 func GetServerGroups() ([]models.ServerGroup, error) {
@@ -47,7 +47,7 @@ func handleCrashedServer(s *models.Server) error {
 		log.Infof("try promote %s", stringifyServer(slave))
 		err = callHttp(nil, genUrl(*apiServer, "/api/server_group/", slave.GroupId, "/promote"), "POST", slave)
 		if err != nil {
-			log.Errorf("do promote %s failed %v", stringifyServer(slave), errors.ErrorStack(err))
+			log.Errorf("do promote %s failed %s", stringifyServer(slave), errors.ErrorStack(err))
 			return err
 		}
 		log.Infof("slave %s promoted", stringifyServer(slave))
@@ -86,7 +86,7 @@ func handleRecoveredServer(s *models.Server) {
 	s.Type = models.SERVER_TYPE_SLAVE
 	log.Infof("try reusing slave %s", stringifyServer(s))
 	err := callHttp(nil, genUrl(*apiServer, "/api/server_group/", s.GroupId, "/addServer"), "PUT", s)
-	log.Errorf("do reusing slave %s failed %v", stringifyServer(s), errors.ErrorStack(err))
+	log.Errorf("do reusing slave %s failed %s", stringifyServer(s), errors.ErrorStack(err))
 }
 
 func checkSlave(s *models.Server, wg *sync.WaitGroup) {
