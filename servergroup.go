@@ -85,16 +85,19 @@ func CheckAlive(groups []models.ServerGroup) {
 func handleRecoveredServer(s *models.Server) {
 	s.Type = models.SERVER_TYPE_SLAVE
 	log.Infof("try reusing slave %s", stringifyServer(s))
-	err := callHttp(nil, genUrl(*apiServer, "/api/server_group/", s.GroupId, "/addServer"), "PUT", s)
-	log.Errorf("do reusing slave %s failed %s", stringifyServer(s), errors.ErrorStack(err))
+	if err := callHttp(nil, genUrl(*apiServer, "/api/server_group/", s.GroupId, "/addServer"), "PUT", s); err != nil {
+		log.Errorf("do reusing slave %s failed %s", stringifyServer(s), errors.ErrorStack(err))
+	}
 }
 
 func checkSlave(s *models.Server, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	rc := acf(s.Addr, 5*time.Second)
 	if err := rc.CheckAlive(); err != nil {
-		handleRecoveredServer(s)
+		return
 	}
-	wg.Done()
+	handleRecoveredServer(s)
 }
 
 // CheckAlive ping codis-server find node up with type offine
